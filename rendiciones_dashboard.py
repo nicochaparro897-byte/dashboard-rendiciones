@@ -112,34 +112,96 @@ LOGO_PATH = "logo_gcsp.png"
 
 # ─── LOGIN ────────────────────────────────────────────────────────────────────
 def mostrar_login():
-    st.markdown("<div style='height:40px'></div>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1.1, 1])
-    with col2:
-        logo_b64 = img_to_base64(LOGO_PATH)
-        if logo_b64:
-            st.markdown(f"""
-            <div style='text-align:center; margin-bottom:16px;'>
-                <img src="data:image/png;base64,{logo_b64}" width="90">
-            </div>""", unsafe_allow_html=True)
+    st.markdown("""
+    <style>
+    [data-testid="stAppViewContainer"] {
+        background: linear-gradient(135deg, #0A0F2C 0%, #0D1B4B 55%, #0A2A6E 100%) !important;
+        min-height: 100vh;
+    }
+    .main .block-container { padding-top: 0 !important; }
 
-        st.markdown("""
-        <div style='text-align:center; margin-bottom:24px;'>
-            <div style='font-size:22px; font-weight:700; color:#0A0F2C;'>GCS-P Rendiciones</div>
-            <div style='font-size:13px; color:#718096; margin-top:4px;'>Ingresa tus credenciales para continuar</div>
-        </div>""", unsafe_allow_html=True)
+    .login-wrapper {
+        display: flex; align-items: center; justify-content: center;
+        min-height: 100vh; padding: 40px 20px;
+    }
+    .login-card {
+        background: white; border-radius: 20px; padding: 48px 40px;
+        width: 100%; max-width: 380px;
+        box-shadow: 0 32px 80px rgba(0,0,0,0.35);
+        border-top: 5px solid #3182CE;
+        position: relative; overflow: hidden;
+    }
+    .login-card::before {
+        content: ''; position: absolute; top: -60px; right: -60px;
+        width: 180px; height: 180px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(49,130,206,0.06) 0%, transparent 70%);
+    }
+    .login-logo-wrap { text-align: center; margin-bottom: 20px; }
+    .login-logo-wrap img {
+        width: 90px; filter: drop-shadow(0 4px 12px rgba(49,130,206,0.2));
+    }
+    .login-title {
+        text-align: center; font-size: 22px; font-weight: 700;
+        color: #0A0F2C; margin-bottom: 4px; letter-spacing: -0.5px;
+    }
+    .login-sub {
+        text-align: center; font-size: 12px; color: #A0AEC0;
+        margin-bottom: 28px; text-transform: uppercase; letter-spacing: 1px;
+    }
+    .login-divider {
+        height: 1px; background: #EDF2F7; margin-bottom: 24px;
+    }
+    .login-footer {
+        text-align: center; margin-top: 20px;
+        font-size: 11px; color: #CBD5E0;
+    }
+    .security-badge {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: #F0FFF4; border: 1px solid #C6F6D5;
+        color: #276749; font-size: 11px; padding: 4px 12px;
+        border-radius: 20px; margin-top: 12px;
+    }
+    .security-dot { width: 6px; height: 6px; border-radius: 50%; background: #38A169; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    logo_b64 = img_to_base64(LOGO_PATH)
+    logo_html = f'<img src="data:image/png;base64,{logo_b64}">' if logo_b64 else \
+                '<div style="font-size:32px; font-weight:800; color:#0A0F2C;">GCS-P</div>'
+
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
+        st.markdown(f"""
+        <div style='padding-top:60px;'>
+        <div class="login-card">
+            <div class="login-logo-wrap">{logo_html}</div>
+            <div class="login-title">GCS-P Rendiciones</div>
+            <div class="login-sub">Panel Ejecutivo · Acceso Seguro</div>
+            <div class="login-divider"></div>
+        </div>
+        </div>
+        """, unsafe_allow_html=True)
 
         with st.form("login_form"):
-            usuario = st.text_input("👤 Usuario", placeholder="usuario")
-            password = st.text_input("🔒 Contraseña", type="password", placeholder="••••••••")
+            usuario  = st.text_input("👤 Usuario",     placeholder="Ingresa tu usuario")
+            password = st.text_input("🔒 Contraseña",  type="password", placeholder="••••••••")
             submitted = st.form_submit_button("Ingresar →", use_container_width=True)
             if submitted:
                 if usuario in USUARIOS and USUARIOS[usuario]["password"] == password:
                     st.session_state.autenticado = True
-                    st.session_state.usuario = usuario
-                    st.session_state.rol = USUARIOS[usuario]["rol"]
+                    st.session_state.usuario     = usuario
+                    st.session_state.rol         = USUARIOS[usuario]["rol"]
                     st.rerun()
                 else:
                     st.error("❌ Usuario o contraseña incorrectos")
+
+        st.markdown("""
+        <div style='text-align:center; margin-top:8px;'>
+            <div class="security-badge">
+                <div class="security-dot"></div> Conexión segura · Solo personal autorizado
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 if not st.session_state.autenticado:
     mostrar_login()
