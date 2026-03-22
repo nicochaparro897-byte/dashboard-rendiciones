@@ -1,603 +1,389 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 from openpyxl import load_workbook
 import os
-import glob
+import base64
+import tempfile
 from datetime import datetime
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Dashboard Rendiciones",
+    page_title="GCS-P | Dashboard Rendiciones",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+# ─── USUARIOS ─────────────────────────────────────────────────────────────────
+USUARIOS = {
+    "admin":   {"password": "gcsP2026", "rol": "admin",  "nombre": "Administrador"},
+    "gerente": {"password": "gcsP2026", "rol": "viewer", "nombre": "Gerencia"},
+}
+
 # ─── ESTILOS ──────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
-
-html, body, [class*="css"] {
-    font-family: 'DM Sans', sans-serif;
-}
-
-/* Fondo principal */
+html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
 .main { background-color: #F7F8FC; }
 [data-testid="stAppViewContainer"] { background-color: #F7F8FC; }
-
-/* Sidebar */
 [data-testid="stSidebar"] {
     background: linear-gradient(160deg, #0A0F2C 0%, #0D1B4B 60%, #0A2A6E 100%);
-    border-right: none;
 }
 [data-testid="stSidebar"] * { color: #E8EDF7 !important; }
-[data-testid="stSidebar"] .stSelectbox label { color: #A0AEC0 !important; font-size: 11px !important; text-transform: uppercase; letter-spacing: 1px; }
-
-/* Header */
 .dash-header {
     background: linear-gradient(135deg, #0A0F2C 0%, #0D1B4B 50%, #1a3a7c 100%);
-    border-radius: 16px;
-    padding: 32px 40px;
-    margin-bottom: 28px;
-    color: white;
-    position: relative;
-    overflow: hidden;
+    border-radius: 16px; padding: 28px 40px; margin-bottom: 28px;
+    color: white; display: flex; align-items: center; gap: 24px;
+    position: relative; overflow: hidden;
 }
-.dash-header::before {
-    content: '';
-    position: absolute;
-    top: -50%;
-    right: -10%;
-    width: 400px;
-    height: 400px;
-    background: radial-gradient(circle, rgba(99,179,237,0.12) 0%, transparent 70%);
-    border-radius: 50%;
-}
-.dash-header h1 {
-    font-size: 28px;
-    font-weight: 700;
-    margin: 0;
-    color: white;
-    letter-spacing: -0.5px;
-}
-.dash-header p {
-    font-size: 14px;
-    color: #90CDF4;
-    margin: 6px 0 0 0;
-    font-weight: 400;
-}
+.dash-header h1 { font-size: 24px; font-weight: 700; margin: 0; color: white; }
+.dash-header p { font-size: 13px; color: #90CDF4; margin: 4px 0 0 0; }
 .badge {
-    display: inline-block;
-    background: rgba(99,179,237,0.2);
-    border: 1px solid rgba(99,179,237,0.4);
-    color: #90CDF4;
-    font-size: 11px;
-    padding: 3px 10px;
-    border-radius: 20px;
-    margin-top: 12px;
+    display: inline-block; background: rgba(99,179,237,0.2);
+    border: 1px solid rgba(99,179,237,0.4); color: #90CDF4;
+    font-size: 11px; padding: 3px 10px; border-radius: 20px; margin-top: 10px;
     font-family: 'DM Mono', monospace;
-    letter-spacing: 0.5px;
 }
-
-/* KPI Cards */
 .kpi-card {
-    background: white;
-    border-radius: 14px;
-    padding: 24px;
-    border: 1px solid #E8EDF5;
-    box-shadow: 0 2px 12px rgba(10,15,44,0.06);
-    position: relative;
-    overflow: hidden;
-    transition: box-shadow 0.2s ease;
+    background: white; border-radius: 14px; padding: 24px;
+    border: 1px solid #E8EDF5; box-shadow: 0 2px 12px rgba(10,15,44,0.06);
+    position: relative; overflow: hidden;
 }
-.kpi-card:hover { box-shadow: 0 6px 24px rgba(10,15,44,0.12); }
 .kpi-card::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: var(--accent);
-    border-radius: 0 0 14px 14px;
+    content: ''; position: absolute; bottom: 0; left: 0; right: 0;
+    height: 3px; background: var(--accent); border-radius: 0 0 14px 14px;
 }
-.kpi-label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 1.2px;
-    color: #718096;
-    margin-bottom: 8px;
-}
-.kpi-value {
-    font-size: 32px;
-    font-weight: 700;
-    color: #0A0F2C;
-    line-height: 1;
-    margin-bottom: 4px;
-    font-family: 'DM Mono', monospace;
-}
-.kpi-sub {
-    font-size: 12px;
-    color: #A0AEC0;
-}
-
-/* Sección títulos */
-.section-title {
-    font-size: 16px;
-    font-weight: 600;
-    color: #0A0F2C;
-    margin: 0 0 16px 0;
-    padding-bottom: 10px;
-    border-bottom: 2px solid #EDF2F7;
-}
-
-/* Tabla */
-.stDataFrame { border-radius: 12px; overflow: hidden; }
-thead tr th {
-    background: #0D1B4B !important;
-    color: white !important;
-    font-weight: 600 !important;
-    font-size: 12px !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.8px !important;
-}
-tbody tr:nth-child(even) { background: #F7F8FC; }
-tbody tr:hover { background: #EBF4FF !important; }
-
-/* Chip tipo documento */
-.chip-factura {
-    background: #EBF8FF;
-    color: #2B6CB0;
-    border: 1px solid #BEE3F8;
-    padding: 2px 10px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 600;
-}
-.chip-boleta {
-    background: #F0FFF4;
-    color: #276749;
-    border: 1px solid #C6F6D5;
-    padding: 2px 10px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 600;
-}
-
-/* Separador */
-.divider { height: 1px; background: #EDF2F7; margin: 24px 0; }
-
-/* Alerta sin datos */
-.no-data {
-    text-align: center;
-    padding: 40px;
-    color: #A0AEC0;
-    font-size: 14px;
-}
+.kpi-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; color: #718096; margin-bottom: 8px; }
+.kpi-value { font-size: 30px; font-weight: 700; color: #0A0F2C; line-height: 1; margin-bottom: 4px; font-family: 'DM Mono', monospace; }
+.kpi-sub { font-size: 12px; color: #A0AEC0; }
+.section-title { font-size: 16px; font-weight: 600; color: #0A0F2C; margin: 0 0 16px 0; padding-bottom: 10px; border-bottom: 2px solid #EDF2F7; }
 </style>
 """, unsafe_allow_html=True)
 
+# ─── HELPERS ──────────────────────────────────────────────────────────────────
 
-# ─── FUNCIONES ────────────────────────────────────────────────────────────────
+def img_to_base64(path):
+    try:
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except:
+        return None
 
-def leer_excel_informe(path: str) -> dict:
-    """Lee el archivo Informe B/F mensual y extrae datos de cada usuario."""
+def formatear_clp(valor):
+    return f"${valor:,.0f}".replace(",", ".")
+
+def leer_excel_informe(path):
     wb = load_workbook(path, data_only=True)
     usuarios = {}
-    hojas_excluir = {"Dashboard"}
-
     for nombre_hoja in wb.sheetnames:
-        if nombre_hoja in hojas_excluir:
+        if nombre_hoja == "Dashboard":
             continue
         ws = wb[nombre_hoja]
         filas = []
         for row in ws.iter_rows(min_row=8, values_only=True):
-            fecha, tipo, descripcion, monto, link, estado = (list(row) + [None]*6)[:6]
-            if fecha is None and tipo is None and monto is None:
-                continue
+            cols = (list(row) + [None]*6)[:6]
+            fecha, tipo, descripcion, monto, link, estado = cols
             if tipo not in ("Factura", "Boleta"):
                 continue
-            filas.append({
-                "Fecha": fecha,
-                "Tipo": tipo,
-                "Descripción": descripcion,
-                "Monto": monto if monto else 0,
-                "Link": link,
-                "Estado": estado,
-                "Usuario": nombre_hoja
-            })
+            filas.append({"Fecha": fecha, "Tipo": tipo, "Descripción": descripcion,
+                          "Monto": monto or 0, "Estado": estado or "—", "Usuario": nombre_hoja})
         if filas:
             usuarios[nombre_hoja] = pd.DataFrame(filas)
-
     return usuarios
 
-
-def leer_excels_individuales(carpeta: str) -> dict:
-    """Lee archivos individuales de cada usuario desde carpeta input/."""
-    usuarios = {}
-    archivos = glob.glob(os.path.join(carpeta, "*.xlsx"))
-
-    for archivo in archivos:
-        nombre = os.path.splitext(os.path.basename(archivo))[0]
-        wb = load_workbook(archivo, data_only=True)
-        ws = wb.active
-
-        # Buscar nombre del solicitante
-        solicitante = nombre
-        for row in ws.iter_rows(min_row=1, max_row=15, values_only=True):
-            for i, cell in enumerate(row):
-                if cell and "Solicitado por" in str(cell):
-                    siguiente = row[i+1] if i+1 < len(row) else None
-                    if siguiente and str(siguiente).strip() not in ("XXXX XXXX", ""):
-                        solicitante = str(siguiente).strip()
-
-        filas = []
-        for row in ws.iter_rows(min_row=12, values_only=True):
-            item, folio, fecha, descripcion, motivo, pagado_con, monto = (list(row) + [None]*7)[:7]
-            if folio is None and monto is None:
-                continue
-            # Detectar tipo según contenido del folio
-            tipo = "Sin Doc."
-            if folio:
-                texto = str(folio).lower()
-                if "fact" in texto:
-                    tipo = "Factura"
-                elif "bolet" in texto:
-                    tipo = "Boleta"
-            filas.append({
-                "Fecha": fecha,
-                "Tipo": tipo,
-                "Descripción": descripcion,
-                "Monto": monto if monto else 0,
-                "N° Folio": folio,
-                "Usuario": solicitante
-            })
-        if filas:
-            usuarios[solicitante] = pd.DataFrame(filas)
-
-    return usuarios
-
-
-def consolidar(usuarios: dict) -> pd.DataFrame:
+def consolidar(usuarios):
     if not usuarios:
         return pd.DataFrame()
     return pd.concat(usuarios.values(), ignore_index=True)
 
+# ─── SESSION STATE ────────────────────────────────────────────────────────────
+if "autenticado" not in st.session_state:
+    st.session_state.autenticado = False
+if "usuario" not in st.session_state:
+    st.session_state.usuario = None
+if "rol" not in st.session_state:
+    st.session_state.rol = None
+if "archivos_meses" not in st.session_state:
+    st.session_state.archivos_meses = {}
 
-def formatear_clp(valor: float) -> str:
-    return f"${valor:,.0f}".replace(",", ".")
+LOGO_PATH = "logo_gcsp.png"
 
+# ─── LOGIN ────────────────────────────────────────────────────────────────────
+def mostrar_login():
+    st.markdown("<div style='height:40px'></div>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 1.1, 1])
+    with col2:
+        logo_b64 = img_to_base64(LOGO_PATH)
+        if logo_b64:
+            st.markdown(f"""
+            <div style='text-align:center; margin-bottom:16px;'>
+                <img src="data:image/png;base64,{logo_b64}" width="90">
+            </div>""", unsafe_allow_html=True)
 
-def color_tipo(tipo: str) -> str:
-    if tipo == "Factura":
-        return "🟦 Factura"
-    elif tipo == "Boleta":
-        return "🟩 Boleta"
-    return tipo
+        st.markdown("""
+        <div style='text-align:center; margin-bottom:24px;'>
+            <div style='font-size:22px; font-weight:700; color:#0A0F2C;'>GCS-P Rendiciones</div>
+            <div style='font-size:13px; color:#718096; margin-top:4px;'>Ingresa tus credenciales para continuar</div>
+        </div>""", unsafe_allow_html=True)
 
+        with st.form("login_form"):
+            usuario = st.text_input("👤 Usuario", placeholder="usuario")
+            password = st.text_input("🔒 Contraseña", type="password", placeholder="••••••••")
+            submitted = st.form_submit_button("Ingresar →", use_container_width=True)
+            if submitted:
+                if usuario in USUARIOS and USUARIOS[usuario]["password"] == password:
+                    st.session_state.autenticado = True
+                    st.session_state.usuario = usuario
+                    st.session_state.rol = USUARIOS[usuario]["rol"]
+                    st.rerun()
+                else:
+                    st.error("❌ Usuario o contraseña incorrectos")
+
+if not st.session_state.autenticado:
+    mostrar_login()
+    st.stop()
 
 # ─── SIDEBAR ──────────────────────────────────────────────────────────────────
-
 with st.sidebar:
-    st.markdown("""
-    <div style='padding: 8px 0 24px 0;'>
-        <div style='font-size:22px; font-weight:700; letter-spacing:-0.5px;'>📊 Rendiciones</div>
-        <div style='font-size:11px; color:#718096; margin-top:4px; text-transform:uppercase; letter-spacing:1px;'>Panel de Control</div>
-    </div>
-    """, unsafe_allow_html=True)
+    logo_b64 = img_to_base64(LOGO_PATH)
+    if logo_b64:
+        st.markdown(f"""
+        <div style='text-align:center; padding:16px 0 8px;'>
+            <img src="data:image/png;base64,{logo_b64}" width="75" style="border-radius:8px; background:white; padding:4px;">
+        </div>""", unsafe_allow_html=True)
 
-    st.markdown("**Fuente de datos**")
-    modo = st.radio(
-        "",
-        ["📄 Informe B/F mensual", "📁 Archivos individuales"],
-        label_visibility="collapsed"
-    )
+    rol_badge = "👑 Admin" if st.session_state.rol == "admin" else "👁️ Gerencia"
+    st.markdown(f"""
+    <div style='text-align:center; padding-bottom:16px;'>
+        <div style='font-size:16px; font-weight:700;'>GCS-P</div>
+        <div style='font-size:11px; color:#718096;'>Panel de Rendiciones</div>
+        <div style='margin-top:8px; font-size:12px; background:rgba(255,255,255,0.1);
+                    border-radius:20px; padding:3px 12px; display:inline-block;'>{rol_badge}</div>
+    </div>""", unsafe_allow_html=True)
 
-    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    st.markdown("---")
 
-    if modo == "📄 Informe B/F mensual":
-        archivo = st.file_uploader("Subir Informe B/F", type=["xlsx"], key="informe")
+    # Solo admin sube archivos
+    if st.session_state.rol == "admin":
+        st.markdown("**📤 Cargar datos por mes**")
+        mes_nombre = st.text_input("Nombre del mes", placeholder="Ej: Marzo 2026")
+        archivo_mes = st.file_uploader("Subir Excel del mes", type=["xlsx"])
+        if st.button("➕ Agregar mes", use_container_width=True):
+            if mes_nombre and archivo_mes:
+                with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+                    tmp.write(archivo_mes.read())
+                    tmp_path = tmp.name
+                usuarios_data = leer_excel_informe(tmp_path)
+                os.unlink(tmp_path)
+                df_mes = consolidar(usuarios_data)
+                df_mes["Mes"] = mes_nombre
+                st.session_state.archivos_meses[mes_nombre] = df_mes
+                st.success(f"✅ {mes_nombre} agregado!")
+                st.rerun()
+            else:
+                st.warning("Completa el nombre y sube el archivo")
+
+        if st.session_state.archivos_meses:
+            st.markdown("**📅 Meses cargados:**")
+            for m in list(st.session_state.archivos_meses.keys()):
+                col_m, col_x = st.columns([3, 1])
+                with col_m:
+                    st.markdown(f"<div style='font-size:12px; padding:3px 0;'>📅 {m}</div>", unsafe_allow_html=True)
+                with col_x:
+                    if st.button("✕", key=f"del_{m}"):
+                        del st.session_state.archivos_meses[m]
+                        st.rerun()
+        st.markdown("---")
+
+    meses_disponibles = list(st.session_state.archivos_meses.keys())
+    if meses_disponibles:
+        mes_sel = st.selectbox("📅 Mes", ["Todos los meses"] + meses_disponibles)
     else:
-        archivos_ind = st.file_uploader("Subir archivos de usuarios", type=["xlsx"],
-                                         accept_multiple_files=True, key="individuales")
+        mes_sel = "demo"
 
-    st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
-    st.markdown("""
-    <div style='font-size:11px; color:#4A5568; border-top:1px solid rgba(255,255,255,0.1); padding-top:16px;'>
-        <div style='margin-bottom:6px;'>📌 Columnas esperadas:</div>
-        <div style='color:#718096;'>Fecha · Tipo · Descripción</div>
-        <div style='color:#718096;'>Monto · Estado</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+    st.markdown("---")
+    if st.button("🚪 Cerrar sesión", use_container_width=True):
+        for key in ["autenticado", "usuario", "rol"]:
+            st.session_state[key] = None if key != "autenticado" else False
+        st.rerun()
 
 # ─── CARGAR DATOS ─────────────────────────────────────────────────────────────
+DEMO = consolidar({
+    "JC": pd.DataFrame([
+        {"Fecha":"2026-02-03","Tipo":"Factura","Descripción":"Materiales oficina","Monto":85000,"Estado":"Aprobado","Usuario":"JC"},
+        {"Fecha":"2026-02-07","Tipo":"Boleta", "Descripción":"Almuerzo reunión",  "Monto":24000,"Estado":"Aprobado","Usuario":"JC"},
+        {"Fecha":"2026-02-12","Tipo":"Factura","Descripción":"Servicio técnico",  "Monto":120000,"Estado":"Pendiente","Usuario":"JC"},
+    ]),
+    "CV": pd.DataFrame([
+        {"Fecha":"2026-02-05","Tipo":"Boleta", "Descripción":"Café proveedor",    "Monto":18000,"Estado":"Aprobado","Usuario":"CV"},
+        {"Fecha":"2026-02-10","Tipo":"Factura","Descripción":"Software licencia", "Monto":210000,"Estado":"Aprobado","Usuario":"CV"},
+    ]),
+    "GQ": pd.DataFrame([
+        {"Fecha":"2026-02-01","Tipo":"Factura","Descripción":"Impresión docs",    "Monto":45000,"Estado":"Aprobado","Usuario":"GQ"},
+        {"Fecha":"2026-02-14","Tipo":"Boleta", "Descripción":"Cena trabajo",      "Monto":32000,"Estado":"Aprobado","Usuario":"GQ"},
+    ]),
+    "GC": pd.DataFrame([
+        {"Fecha":"2026-02-08","Tipo":"Boleta", "Descripción":"Útiles escritorio", "Monto":15500,"Estado":"Aprobado","Usuario":"GC"},
+        {"Fecha":"2026-02-15","Tipo":"Factura","Descripción":"Mantenimiento",     "Monto":95000,"Estado":"Aprobado","Usuario":"GC"},
+    ]),
+})
 
-usuarios = {}
-
-if modo == "📄 Informe B/F mensual" and 'archivo' in locals() and archivo:
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-        tmp.write(archivo.read())
-        tmp_path = tmp.name
-    usuarios = leer_excel_informe(tmp_path)
-    os.unlink(tmp_path)
-
-elif modo == "📁 Archivos individuales" and 'archivos_ind' in locals() and archivos_ind:
-    import tempfile
-    for arch in archivos_ind:
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-            tmp.write(arch.read())
-            tmp_path = tmp.name
-        wb = load_workbook(tmp_path, data_only=True)
-        ws = wb.active
-        nombre = os.path.splitext(arch.name)[0]
-        filas = []
-        for row in ws.iter_rows(min_row=12, values_only=True):
-            cols = (list(row) + [None]*9)[:9]
-            item, folio, fecha, desc, motivo, pagado, monto = cols[2], cols[3], cols[4], cols[5], cols[6], cols[7], cols[8]
-            if folio is None and monto is None:
-                continue
-            tipo = "Factura" if folio and "fact" in str(folio).lower() else (
-                   "Boleta" if folio and "bolet" in str(folio).lower() else "Sin Doc.")
-            filas.append({"Fecha": fecha, "Tipo": tipo, "Descripción": desc,
-                          "Monto": monto or 0, "Usuario": nombre})
-        if filas:
-            usuarios[nombre] = pd.DataFrame(filas)
-        os.unlink(tmp_path)
-
-# Usar datos de demo si no hay archivo cargado
-if not usuarios:
-    usuarios = {
-        "JC": pd.DataFrame([
-            {"Fecha": "2026-02-03", "Tipo": "Factura", "Descripción": "Materiales oficina", "Monto": 85000, "Estado": "Aprobado", "Usuario": "JC"},
-            {"Fecha": "2026-02-07", "Tipo": "Boleta", "Descripción": "Almuerzo reunión", "Monto": 24000, "Estado": "Aprobado", "Usuario": "JC"},
-            {"Fecha": "2026-02-12", "Tipo": "Factura", "Descripción": "Servicio técnico", "Monto": 120000, "Estado": "Pendiente", "Usuario": "JC"},
-            {"Fecha": "2026-02-18", "Tipo": "Boleta", "Descripción": "Taxi cliente", "Monto": 9500, "Estado": "Aprobado", "Usuario": "JC"},
-        ]),
-        "CV": pd.DataFrame([
-            {"Fecha": "2026-02-05", "Tipo": "Boleta", "Descripción": "Café con proveedor", "Monto": 18000, "Estado": "Aprobado", "Usuario": "CV"},
-            {"Fecha": "2026-02-10", "Tipo": "Factura", "Descripción": "Software licencia", "Monto": 210000, "Estado": "Aprobado", "Usuario": "CV"},
-            {"Fecha": "2026-02-20", "Tipo": "Boleta", "Descripción": "Transporte", "Monto": 7200, "Estado": "Pendiente", "Usuario": "CV"},
-        ]),
-        "GQ": pd.DataFrame([
-            {"Fecha": "2026-02-01", "Tipo": "Factura", "Descripción": "Impresión documentos", "Monto": 45000, "Estado": "Aprobado", "Usuario": "GQ"},
-            {"Fecha": "2026-02-14", "Tipo": "Boleta", "Descripción": "Cena de trabajo", "Monto": 32000, "Estado": "Aprobado", "Usuario": "GQ"},
-            {"Fecha": "2026-02-22", "Tipo": "Factura", "Descripción": "Consultoría externa", "Monto": 350000, "Estado": "Pendiente", "Usuario": "GQ"},
-        ]),
-        "GC": pd.DataFrame([
-            {"Fecha": "2026-02-08", "Tipo": "Boleta", "Descripción": "Útiles de escritorio", "Monto": 15500, "Estado": "Aprobado", "Usuario": "GC"},
-            {"Fecha": "2026-02-15", "Tipo": "Factura", "Descripción": "Mantenimiento equipo", "Monto": 95000, "Estado": "Aprobado", "Usuario": "GC"},
-            {"Fecha": "2026-02-25", "Tipo": "Boleta", "Descripción": "Estacionamiento", "Monto": 6000, "Estado": "Aprobado", "Usuario": "GC"},
-        ]),
-    }
-    demo_mode = True
+demo_mode = not bool(st.session_state.archivos_meses)
+if demo_mode:
+    df_total = DEMO.copy()
+elif mes_sel == "Todos los meses":
+    df_total = pd.concat(st.session_state.archivos_meses.values(), ignore_index=True)
 else:
-    demo_mode = False
-
-df_total = consolidar(usuarios)
-
-# ─── FILTROS ──────────────────────────────────────────────────────────────────
+    df_total = st.session_state.archivos_meses[mes_sel].copy()
 
 with st.sidebar:
-    st.markdown("---")
-    st.markdown("**Filtros**")
+    st.markdown("**👤 Filtrar usuario**")
+    usuarios_disp = ["Todos"] + sorted(df_total["Usuario"].unique().tolist()) if not df_total.empty else ["Todos"]
+    filtro_usuario = st.selectbox("", usuarios_disp, label_visibility="collapsed")
+    filtro_tipo = st.selectbox("**📋 Tipo**", ["Todos", "Factura", "Boleta"])
 
-    todos_usuarios = ["Todos"] + sorted(usuarios.keys())
-    filtro_usuario = st.selectbox("Usuario", todos_usuarios)
-
-    tipos_disp = ["Todos", "Factura", "Boleta"]
-    filtro_tipo = st.selectbox("Tipo documento", tipos_disp)
-
-if filtro_usuario != "Todos":
-    df_filtrado = df_total[df_total["Usuario"] == filtro_usuario].copy()
-else:
-    df_filtrado = df_total.copy()
-
-if filtro_tipo != "Todos":
+df_filtrado = df_total.copy()
+if filtro_usuario != "Todos" and not df_filtrado.empty:
+    df_filtrado = df_filtrado[df_filtrado["Usuario"] == filtro_usuario]
+if filtro_tipo != "Todos" and not df_filtrado.empty:
     df_filtrado = df_filtrado[df_filtrado["Tipo"] == filtro_tipo]
 
-
 # ─── HEADER ───────────────────────────────────────────────────────────────────
-
-mes_actual = datetime.now().strftime("%B %Y").capitalize()
-demo_badge = ' &nbsp;<span class="badge">⚡ DATOS DE DEMO</span>' if demo_mode else ''
+logo_b64 = img_to_base64(LOGO_PATH)
+logo_html = f'<img src="data:image/png;base64,{logo_b64}" width="60" style="border-radius:8px; background:white; padding:4px;">' if logo_b64 else ""
+mes_label = mes_sel if mes_sel not in ("demo",) else "Demo"
+demo_badge = '<span class="badge">⚡ DEMO</span>' if demo_mode else ''
 
 st.markdown(f"""
 <div class="dash-header">
-    <h1>📊 Dashboard Ejecutivo de Rendiciones</h1>
-    <p>Control de gastos · Facturas y Boletas · {mes_actual}</p>
-    <span class="badge">🔵 EN VIVO</span>{demo_badge}
-</div>
-""", unsafe_allow_html=True)
+    {logo_html}
+    <div>
+        <h1>Dashboard Ejecutivo de Rendiciones</h1>
+        <p>Control de gastos · Facturas y Boletas · {mes_label}</p>
+        <span class="badge">🔵 GCS-P</span> {demo_badge}
+    </div>
+</div>""", unsafe_allow_html=True)
 
-if demo_mode:
-    st.info("💡 **Modo demo activo** — Sube tu archivo Excel en el panel izquierdo para ver tus datos reales.", icon="📎")
-
+if demo_mode and st.session_state.rol == "admin":
+    st.info("💡 **Modo demo** — Carga tu primer Excel desde el panel izquierdo.", icon="📎")
 
 # ─── KPIs ─────────────────────────────────────────────────────────────────────
+total_gasto   = df_filtrado["Monto"].sum() if not df_filtrado.empty else 0
+cant_facturas = int((df_filtrado["Tipo"] == "Factura").sum()) if not df_filtrado.empty else 0
+cant_boletas  = int((df_filtrado["Tipo"] == "Boleta").sum()) if not df_filtrado.empty else 0
+monto_fact    = df_filtrado[df_filtrado["Tipo"]=="Factura"]["Monto"].sum() if not df_filtrado.empty else 0
+monto_bol     = df_filtrado[df_filtrado["Tipo"]=="Boleta"]["Monto"].sum() if not df_filtrado.empty else 0
+n_usuarios    = df_filtrado["Usuario"].nunique() if not df_filtrado.empty else 0
 
-total_gasto = df_filtrado["Monto"].sum()
-cant_facturas = len(df_filtrado[df_filtrado["Tipo"] == "Factura"])
-cant_boletas = len(df_filtrado[df_filtrado["Tipo"] == "Boleta"])
-monto_facturas = df_filtrado[df_filtrado["Tipo"] == "Factura"]["Monto"].sum()
-monto_boletas = df_filtrado[df_filtrado["Tipo"] == "Boleta"]["Monto"].sum()
-n_usuarios = df_filtrado["Usuario"].nunique()
-
-col1, col2, col3, col4, col5 = st.columns(5)
-
-kpis = [
-    (col1, "GASTO TOTAL", formatear_clp(total_gasto), f"{len(df_filtrado)} registros", "#3182CE"),
-    (col2, "FACTURAS", f"{cant_facturas}", formatear_clp(monto_facturas), "#E53E3E"),
-    (col3, "BOLETAS", f"{cant_boletas}", formatear_clp(monto_boletas), "#38A169"),
-    (col4, "MONTO FACTURAS", formatear_clp(monto_facturas),
-     f"{monto_facturas/total_gasto*100:.1f}% del total" if total_gasto > 0 else "—", "#805AD5"),
-    (col5, "USUARIOS ACTIVOS", str(n_usuarios), "con rendiciones", "#DD6B20"),
-]
-
-for col, label, valor, sub, accent in kpis:
+c1,c2,c3,c4,c5 = st.columns(5)
+for col, label, valor, sub, accent in [
+    (c1,"GASTO TOTAL",     formatear_clp(total_gasto), f"{len(df_filtrado)} registros","#3182CE"),
+    (c2,"FACTURAS",        str(cant_facturas),          formatear_clp(monto_fact),      "#E53E3E"),
+    (c3,"BOLETAS",         str(cant_boletas),           formatear_clp(monto_bol),       "#38A169"),
+    (c4,"MONTO FACTURAS",  formatear_clp(monto_fact),  f"{monto_fact/total_gasto*100:.1f}% del total" if total_gasto>0 else "—","#805AD5"),
+    (c5,"USUARIOS ACTIVOS",str(n_usuarios),             "con rendiciones",              "#DD6B20"),
+]:
     with col:
         st.markdown(f"""
         <div class="kpi-card" style="--accent:{accent}">
             <div class="kpi-label">{label}</div>
             <div class="kpi-value">{valor}</div>
             <div class="kpi-sub">{sub}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        </div>""", unsafe_allow_html=True)
 
 st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
 
-
 # ─── GRÁFICOS ─────────────────────────────────────────────────────────────────
+if not df_filtrado.empty:
+    col_izq, col_der = st.columns([3,2])
+    with col_izq:
+        st.markdown('<p class="section-title">Gasto por Usuario</p>', unsafe_allow_html=True)
+        resumen = df_filtrado.groupby(["Usuario","Tipo"])["Monto"].sum().reset_index()
+        fig_bar = go.Figure()
+        for tipo, color in [("Factura","#3182CE"),("Boleta","#38A169")]:
+            d = resumen[resumen["Tipo"]==tipo]
+            fig_bar.add_trace(go.Bar(name=tipo, x=d["Usuario"], y=d["Monto"],
+                marker_color=color, marker_line_width=0,
+                text=[formatear_clp(v) for v in d["Monto"]],
+                textposition="outside", textfont=dict(size=11, color="#4A5568")))
+        fig_bar.update_layout(barmode="group", paper_bgcolor="white", plot_bgcolor="white",
+            font=dict(family="DM Sans", size=12), height=300,
+            legend=dict(orientation="h", y=1.05, bgcolor="rgba(0,0,0,0)"),
+            margin=dict(l=0,r=0,t=30,b=0),
+            xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor="#EDF2F7", tickformat="$,.0f"))
+        st.plotly_chart(fig_bar, use_container_width=True)
 
-col_izq, col_der = st.columns([3, 2])
+    with col_der:
+        st.markdown('<p class="section-title">Distribución F vs B</p>', unsafe_allow_html=True)
+        dist = df_filtrado.groupby("Tipo")["Monto"].sum().reset_index()
+        fig_pie = go.Figure(go.Pie(
+            labels=dist["Tipo"], values=dist["Monto"], hole=0.65,
+            marker=dict(colors=["#3182CE","#38A169"], line=dict(color="white",width=3)),
+            textinfo="label+percent", textfont=dict(size=12),
+            hovertemplate="<b>%{label}</b><br>%{customdata}<extra></extra>",
+            customdata=[formatear_clp(v) for v in dist["Monto"]]))
+        fig_pie.add_annotation(text=f"<b>{formatear_clp(total_gasto)}</b>", x=0.5, y=0.55,
+            font=dict(size=14, color="#0A0F2C", family="DM Mono"), showarrow=False)
+        fig_pie.add_annotation(text="Total", x=0.5, y=0.42,
+            font=dict(size=12, color="#718096"), showarrow=False)
+        fig_pie.update_layout(paper_bgcolor="white", showlegend=False,
+            margin=dict(l=0,r=0,t=10,b=0), height=300)
+        st.plotly_chart(fig_pie, use_container_width=True)
 
-with col_izq:
-    st.markdown('<p class="section-title">Gasto por Usuario</p>', unsafe_allow_html=True)
+    # Evolución mensual
+    if len(st.session_state.archivos_meses) > 1 and mes_sel == "Todos los meses":
+        st.markdown('<p class="section-title">📈 Evolución Mensual</p>', unsafe_allow_html=True)
+        evol = [{"Mes": m,
+                 "Facturas": df_m[df_m["Tipo"]=="Factura"]["Monto"].sum(),
+                 "Boletas":  df_m[df_m["Tipo"]=="Boleta"]["Monto"].sum(),
+                 "Total":    df_m["Monto"].sum()}
+                for m, df_m in st.session_state.archivos_meses.items()]
+        df_evol = pd.DataFrame(evol)
+        fig_evol = go.Figure()
+        fig_evol.add_trace(go.Bar(x=df_evol["Mes"], y=df_evol["Facturas"], name="Facturas", marker_color="rgba(49,130,206,0.5)"))
+        fig_evol.add_trace(go.Bar(x=df_evol["Mes"], y=df_evol["Boletas"],  name="Boletas",  marker_color="rgba(56,161,105,0.5)"))
+        fig_evol.add_trace(go.Scatter(x=df_evol["Mes"], y=df_evol["Total"], mode="lines+markers",
+            name="Total", line=dict(color="#0A0F2C", width=2), marker=dict(size=7),
+            text=[formatear_clp(v) for v in df_evol["Total"]], textposition="top center"))
+        fig_evol.update_layout(barmode="stack", paper_bgcolor="white", plot_bgcolor="white",
+            font=dict(family="DM Sans"), height=280,
+            legend=dict(orientation="h", y=1.1, bgcolor="rgba(0,0,0,0)"),
+            margin=dict(l=0,r=0,t=30,b=0),
+            xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor="#EDF2F7", tickformat="$,.0f"))
+        st.plotly_chart(fig_evol, use_container_width=True)
 
-    resumen = df_filtrado.groupby(["Usuario", "Tipo"])["Monto"].sum().reset_index()
+    # Resumen
+    st.markdown('<p class="section-title">Resumen por Usuario</p>', unsafe_allow_html=True)
+    res = df_filtrado.groupby("Usuario").agg(
+        Facturas=("Tipo", lambda x: (x=="Factura").sum()),
+        Boletas=("Tipo",  lambda x: (x=="Boleta").sum()),
+        Total=("Monto","sum")).reset_index()
+    res["Total Gastado"] = res["Total"].apply(formatear_clp)
+    res["% del Total"] = (res["Total"]/res["Total"].sum()*100).apply(lambda x: f"{x:.1f}%")
+    st.dataframe(res[["Usuario","Facturas","Boletas","Total Gastado","% del Total"]],
+                 use_container_width=True, hide_index=True)
 
-    colores = {"Factura": "#3182CE", "Boleta": "#38A169"}
-
-    fig_bar = go.Figure()
-    for tipo in ["Factura", "Boleta"]:
-        d = resumen[resumen["Tipo"] == tipo]
-        fig_bar.add_trace(go.Bar(
-            name=tipo,
-            x=d["Usuario"],
-            y=d["Monto"],
-            marker_color=colores.get(tipo, "#718096"),
-            marker_line_width=0,
-            text=[formatear_clp(v) for v in d["Monto"]],
-            textposition="outside",
-            textfont=dict(size=11, color="#4A5568"),
-        ))
-
-    fig_bar.update_layout(
-        barmode="group",
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        font=dict(family="DM Sans", size=12, color="#4A5568"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-                    bgcolor="rgba(0,0,0,0)"),
-        margin=dict(l=0, r=0, t=30, b=0),
-        height=300,
-        xaxis=dict(showgrid=False, tickfont=dict(size=12, color="#2D3748")),
-        yaxis=dict(showgrid=True, gridcolor="#EDF2F7", tickformat="$,.0f",
-                   tickfont=dict(size=10)),
-    )
-    st.plotly_chart(fig_bar, use_container_width=True)
-
-with col_der:
-    st.markdown('<p class="section-title">Distribución Facturas vs Boletas</p>', unsafe_allow_html=True)
-
-    dist = df_filtrado.groupby("Tipo")["Monto"].sum().reset_index()
-
-    fig_pie = go.Figure(go.Pie(
-        labels=dist["Tipo"],
-        values=dist["Monto"],
-        hole=0.65,
-        marker=dict(colors=["#3182CE", "#38A169"], line=dict(color="white", width=3)),
-        textinfo="label+percent",
-        textfont=dict(size=12, family="DM Sans"),
-        hovertemplate="<b>%{label}</b><br>%{customdata}<extra></extra>",
-        customdata=[formatear_clp(v) for v in dist["Monto"]],
-    ))
-
-    total_fmt = formatear_clp(total_gasto)
-    fig_pie.add_annotation(text=f"<b>{total_fmt}</b>", x=0.5, y=0.55,
-                           font=dict(size=16, color="#0A0F2C", family="DM Mono"),
-                           showarrow=False)
-    fig_pie.add_annotation(text="Total", x=0.5, y=0.42,
-                           font=dict(size=12, color="#718096", family="DM Sans"),
-                           showarrow=False)
-
-    fig_pie.update_layout(
-        paper_bgcolor="white",
-        showlegend=False,
-        margin=dict(l=0, r=0, t=10, b=0),
-        height=300,
-    )
-    st.plotly_chart(fig_pie, use_container_width=True)
-
-
-# ─── TABLA RESUMEN ────────────────────────────────────────────────────────────
-
-st.markdown('<p class="section-title">Resumen por Usuario</p>', unsafe_allow_html=True)
-
-resumen_usuarios = df_filtrado.groupby("Usuario").agg(
-    Facturas=("Tipo", lambda x: (x == "Factura").sum()),
-    Boletas=("Tipo", lambda x: (x == "Boleta").sum()),
-    Monto_Facturas=("Monto", lambda x: x[df_filtrado.loc[x.index, "Tipo"] == "Factura"].sum()),
-    Monto_Boletas=("Monto", lambda x: x[df_filtrado.loc[x.index, "Tipo"] == "Boleta"].sum()),
-    Total=("Monto", "sum"),
-    Registros=("Monto", "count"),
-).reset_index()
-
-resumen_usuarios["Monto Facturas"] = resumen_usuarios["Monto_Facturas"].apply(formatear_clp)
-resumen_usuarios["Monto Boletas"] = resumen_usuarios["Monto_Boletas"].apply(formatear_clp)
-resumen_usuarios["Total Gastado"] = resumen_usuarios["Total"].apply(formatear_clp)
-resumen_usuarios["% del Total"] = (resumen_usuarios["Total"] / resumen_usuarios["Total"].sum() * 100).apply(lambda x: f"{x:.1f}%")
-
-tabla_display = resumen_usuarios[["Usuario", "Facturas", "Boletas", "Monto Facturas", "Monto Boletas", "Total Gastado", "% del Total"]]
-
-st.dataframe(
-    tabla_display,
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "Usuario": st.column_config.TextColumn("👤 Usuario", width="medium"),
-        "Facturas": st.column_config.NumberColumn("📄 Facturas", format="%d"),
-        "Boletas": st.column_config.NumberColumn("🧾 Boletas", format="%d"),
-        "Monto Facturas": st.column_config.TextColumn("💰 Monto Facturas"),
-        "Monto Boletas": st.column_config.TextColumn("💰 Monto Boletas"),
-        "Total Gastado": st.column_config.TextColumn("🔢 Total Gastado"),
-        "% del Total": st.column_config.TextColumn("📊 % del Total"),
-    }
-)
-
-
-# ─── DETALLE ──────────────────────────────────────────────────────────────────
-
-st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-st.markdown('<p class="section-title">Detalle de Transacciones</p>', unsafe_allow_html=True)
-
-df_show = df_filtrado.copy()
-df_show["Monto ($)"] = df_show["Monto"].apply(formatear_clp)
-if "Fecha" in df_show.columns:
-    df_show["Fecha"] = pd.to_datetime(df_show["Fecha"], errors="coerce").dt.strftime("%d/%m/%Y")
-
-cols_show = ["Fecha", "Usuario", "Tipo", "Descripción", "Monto ($)"]
-if "Estado" in df_show.columns:
-    cols_show.append("Estado")
-cols_show = [c for c in cols_show if c in df_show.columns]
-
-st.dataframe(
-    df_show[cols_show],
-    use_container_width=True,
-    hide_index=True,
-    height=350,
-    column_config={
-        "Fecha": st.column_config.TextColumn("📅 Fecha", width="small"),
-        "Usuario": st.column_config.TextColumn("👤 Usuario", width="small"),
-        "Tipo": st.column_config.TextColumn("📋 Tipo", width="small"),
-        "Descripción": st.column_config.TextColumn("📝 Descripción"),
-        "Monto ($)": st.column_config.TextColumn("💰 Monto", width="medium"),
-        "Estado": st.column_config.TextColumn("✅ Estado", width="small"),
-    }
-)
-
+    # Detalle
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    st.markdown('<p class="section-title">Detalle de Transacciones</p>', unsafe_allow_html=True)
+    df_show = df_filtrado.copy()
+    df_show["Monto ($)"] = df_show["Monto"].apply(formatear_clp)
+    if "Fecha" in df_show.columns:
+        df_show["Fecha"] = pd.to_datetime(df_show["Fecha"], errors="coerce").dt.strftime("%d/%m/%Y")
+    cols_show = [c for c in ["Fecha","Usuario","Tipo","Descripción","Monto ($)","Estado"] if c in df_show.columns]
+    st.dataframe(df_show[cols_show], use_container_width=True, hide_index=True, height=320)
+else:
+    st.markdown("""
+    <div style='text-align:center; padding:60px; color:#A0AEC0;'>
+        <div style='font-size:48px;'>📭</div>
+        <div style='font-size:16px; margin-top:12px;'>Sin datos para mostrar</div>
+    </div>""", unsafe_allow_html=True)
 
 # ─── FOOTER ───────────────────────────────────────────────────────────────────
-
-st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
 st.markdown(f"""
-<div style='text-align:center; color:#A0AEC0; font-size:12px; padding:16px;
-            border-top:1px solid #EDF2F7; font-family:DM Mono, monospace;'>
-    Dashboard Rendiciones · Actualizado {datetime.now().strftime("%d/%m/%Y %H:%M")}
-</div>
-""", unsafe_allow_html=True)
+<div style='text-align:center; color:#A0AEC0; font-size:12px; padding:24px 16px 8px;
+            border-top:1px solid #EDF2F7; font-family:DM Mono,monospace; margin-top:32px;'>
+    GCS-P · Dashboard Rendiciones · {datetime.now().strftime("%d/%m/%Y %H:%M")} · {st.session_state.usuario}
+</div>""", unsafe_allow_html=True)
